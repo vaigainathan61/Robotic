@@ -1,0 +1,139 @@
+// Handshake for robotic hand on Arduino Mega
+// - Assumes up to 6 servos: Thumb, Index, Middle, Ring, Little, Wrist
+// - Uses Servo.h (works on Arduino Mega)
+// - Trigger via button on pin 2 or via Serial command "handshake"
+
+#include <Servo.h>
+
+// ----- CONFIG -----
+const uint8_t SERVO_PINS[] = {3, 4, 5, 6, 7, 8}; // Thumb, Index, Middle, Ring, Little, Wrist
+const uint8_t NUM_SERVOS = sizeof(SERVO_PINS) / sizeof(SERVO_PINS[0]);
+
+// Safe initial (open) and handshake (closed) angles per servo — tweak per servo
+int openAngle[NUM_SERVOS]     = {10, 10, 10, 10, 10, 90};   // mostly open
+int closedAngle[NUM_SERVOS]   = {70, 85, 85, 85, 85, 120};  // closed / grasp + wrist tilt
+int handshakeWristAngleStart  = 110; // wrist orientation to extend
+int handshakeWristAngleShake1  = 100; // wrist slight rotate for handshake
+int handshakeWristAngleShake2  = 120; // alternate
+
+const uint8_t BUTTON_PIN = 2;      // digital input to trigger handshake
+const unsigned long SHAKE_DELAY = 300; // ms between shake movements
+const int SHAKE_COUNT = 2;         // how many back-and-forth shakes
+
+// ----- STATE -----
+Servo servos[NUM_SERVOS];
+bool buttonState = false;
+bool lastButtonState = false;
+
+// ----- SETUP -----
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUTTON_PIN, INPUT_PULLUP); // button to GND; pressed = LOW
+
+  for (uint8_t i = 0; i < NUM_SERVOS; ++i) {
+    servos[i].attach(SERVO_PINS[i]);
+    servos[i].write(openAngle[i]); // start open
+    delay(50);
+  }
+
+  Serial.println("Robotic Hand: Ready. Send 'handshake' or press button.");
+}
+
+// ----- HELPERS -----
+void moveAllTo(const int angles[], unsigned long stepDelay = 15) {
+  // move each servo directly to target angle (simple)
+  for (uint8_t i = 0; i < NUM_SERVOS; ++i) {
+    servos[i].write(constrain(angles[i], 0, 180));
+    delay(stepDelay);
+  }
+}
+
+void smoothMoveServo(uint8_t idx, int target, int stepDelay = 10) {
+  int cur = servos[idx].read();
+  if (cur == target) return;
+  int step = (target > cur) ? 1 : -1;
+  while (cur != target) {
+    cur += step;
+    servos[idx].write(cur);
+    delay(stepDelay);
+  }
+}
+
+void smoothMoveAll(const int targets[], int stepDelay = 8) {
+  // Moves all servos smoothly to target positions
+  bool done = false;
+  while (!done) {
+    done = true;
+    for (uint8_t i = 0; i < NUM_SERVOS; ++i) {
+      int cur = servos[i].read();
+      int t = constrain(targets[i], 0, 180);
+      if (cur < t) { servos[i].write(cur + 1); done = false; }
+      else if (cur > t) { servos[i].write(cur - 1); done = false; }
+      // small pause to let servo move
+    }
+    delay(stepDelay);
+  }
+}
+
+// Handshake routine
+void doHandshake() {
+  Serial.println("Handshake started...");
+
+  // 1) Extend hand: open + set wrist to handshake start
+  int extendTargets[NUM_SERVOS];
+  for (uint8_t i = 0; i < NUM_SERVOS; ++i) extendTargets[i] = openAngle[i];
+  extendTargets[5] = handshakeWristAngleStart; // wrist index 5
+  smoothMoveAll(extendTargets, 6);
+  delay(200);
+
+  // 2) Close fingers to grasp
+  int closeTargets[NUM_SERVOS];
+  for (uint8_t i = 0; i < NUM_SERVOS; ++i) closeTargets[i] = closedAngle[i];
+  // ensure wrist orientation good for handshake
+  closeTargets[5] = handshakeWristAngleStart;
+  smoothMoveAll(closeTargets, 6);
+  delay(200);
+
+  // 3) Perform shake: small wrist oscillation (can also move forearm if available)
+  for (int s = 0; s < SHAKE_COUNT; ++s) {
+    servos[5].write(handshakeWristAngleShake1);
+    delay(SHAKE_DELAY);
+    servos[5].write(handshakeWristAngleShake2);
+    delay(SHAKE_DELAY);
+  }
+
+  // 4) Hold briefly then release
+  delay(200);
+  int releaseTargets[NUM_SERVOS];
+  for (uint8_t i = 0; i < NUM_SERVOS; ++i) releaseTargets[i] = openAngle[i];
+  releaseTargets[5] = 90; // neutral wrist
+  smoothMoveAll(releaseTargets, 6);
+
+  Serial.println("Handshake finished.");
+}
+
+// ----- LOOP -----
+void loop() {
+  // Button trigger (active LOW)
+  buttonState = (digitalRead(BUTTON_PIN) == LOW);
+  if (buttonState && !lastButtonState) {
+    // button pressed (rising edge)
+    doHandshake();
+  }
+  lastButtonState = buttonState;
+
+  // Serial trigger
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.equalsIgnoreCase("handshake")) {
+      doHandshake();
+    } else if (cmd.startsWith("cal ")) {
+      // example: cal 0 20  -> set servo 0 openAngle to 20
+      // not implemented here, placeholder for future
+      Serial.println("Calibration command placeholder.");
+    } else {
+      Serial.println("Unknown command. Use 'handshake'.");
+    }
+  }
+}
