@@ -7,3 +7,4 @@ The main goal of this project is to explore automation principles and understand
 This project also emphasizes the importance of control systems, mechanical design, and signal interfacing between microcontrollers and sensors. It serves as a learning platform for robotics enthusiasts who want to understand the process of designing, assembling, and programming a robot from scratch.
 
 The repository will include references, code snippets, circuit diagrams, and images to help others understand the development process. The robot model displayed here demonstrates innovation, creativity, and technical knowledge in the field of robotics and automation engineering.
+![WhatsApp Image 2025-10-16 at 11 39 23 (2)](https://github.com/user-attachments/assets/fc0aa5dd-9e9c-46d3-be6c-2d568c1d216f)
